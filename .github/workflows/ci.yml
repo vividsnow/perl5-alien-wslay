@@ -1,0 +1,84 @@
+name: CI
+on:
+  push:
+    branches: ['*']
+  pull_request:
+
+jobs:
+  linux-debian:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        perl: ['5.32', '5.36', '5.40']
+        install_type: ['share', 'system']
+    name: Debian ${{ matrix.install_type }} - Perl ${{ matrix.perl }}
+    container: perl:${{ matrix.perl }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install system deps
+        run: |
+          apt-get update && apt-get install -y cmake gcc make pkg-config libssl-dev autoconf automake libtool
+          if [ "${{ matrix.install_type }}" = "system" ]; then
+            apt-get install -y libwslay-dev || true
+          fi
+      - name: Install CPAN deps
+        run: cpanm -n Mozilla::CA Mojo::DOM58 URI Net::SSLeay IO::Socket::SSL Alien::Build Alien::Build::Plugin::Download::GitHub Test::Alien
+      - name: Build
+        env:
+          ALIEN_INSTALL_TYPE: ${{ matrix.install_type }}
+          GITHUB_TOKEN: ${{ github.token }}
+        run: perl Makefile.PL && make
+      - name: Test
+        run: make test
+
+  linux-alpine:
+    runs-on: ubuntu-latest
+    name: Alpine (share)
+    container: alpine:latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install system deps
+        run: apk add --no-cache perl perl-dev perl-app-cpanminus make gcc musl-dev cmake pkgconf wget openssl-dev zlib-dev autoconf automake libtool perl-net-ssleay perl-io-socket-ssl
+      - name: Install CPAN deps
+        run: cpanm -n Mozilla::CA Mojo::DOM58 URI Alien::Build Alien::Build::Plugin::Download::GitHub Test::Alien
+      - name: Build
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: perl Makefile.PL && make
+      - name: Test
+        run: make test
+
+  macos:
+    runs-on: macos-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        install_type: ['share', 'system']
+    name: macOS (${{ matrix.install_type }})
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install system deps
+        run: |
+          brew install cpanminus cmake pkg-config openssl@3 autoconf automake libtool
+          if [ "${{ matrix.install_type }}" = "system" ]; then
+            brew install wslay
+          fi
+      - name: Install CPAN deps
+        env:
+          OPENSSL_PREFIX: /opt/homebrew/opt/openssl@3
+        run: |
+          cpanm -n Net::SSLeay IO::Socket::SSL
+          cpanm -n Mozilla::CA Mojo::DOM58 URI Alien::Build Alien::Build::Plugin::Download::GitHub Test::Alien
+      - name: Build
+        env:
+          PKG_CONFIG_PATH: /opt/homebrew/lib/pkgconfig
+          LIBRARY_PATH: /opt/homebrew/lib
+          CPATH: /opt/homebrew/include
+          ALIEN_INSTALL_TYPE: ${{ matrix.install_type }}
+          GITHUB_TOKEN: ${{ github.token }}
+        run: perl Makefile.PL && make
+      - name: Test
+        env:
+          DYLD_LIBRARY_PATH: /opt/homebrew/lib
+        run: make test
